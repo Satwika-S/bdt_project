@@ -1,0 +1,35 @@
+import findspark
+findspark.init()
+from pyspark.sql import SparkSession
+from pyspark.ml.recommendation import ALS
+from pyspark.sql import functions as F
+# Start Spark session with more resources
+spark = SparkSession.builder \
+    .appName("movie-recommender")\
+    .config("spark.executor.memory", "16g")\
+    .config("spark.executor.cores", "8")\
+    .getOrCreate()
+# Read in data as DataFrames   
+movies_df = spark.read.parquet('movies.parquet') 
+ratings_df = spark.read.parquet('ratings.parquet') 
+# Cache DataFrame to avoid re-computation on multiple actions
+ratings_df.cache()
+# Use Spark SQL instead of DataFrame transformations
+ratings_df.createOrReplaceTempView("ratings")
+filtered_ratings = spark.sql("""
+    SELECT * 
+    FROM ratings
+    WHERE user_id = 123
+""")
+# Train ALS model for collaborative filtering  
+als = ALS(userCol="user_id", itemCol="movie_id", ratingCol="rating")
+model = als.fit(ratings_df)
+# Get user recommendations 
+user_recs = model.recommendForAllUsers(10)
+# Join with movie info to show titles
+recommendations = user_recs.join(movies_df, 'movie_id').select(
+   'user_id', 
+   'recommendations.movie_id',
+   'title'
+)
+recommendations.show()
